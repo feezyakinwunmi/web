@@ -1,0 +1,7 @@
+# Apache / cPanel: send every unknown path to the dashboard app (client-side routing).
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule . index.html [L]
+</IfModule>
