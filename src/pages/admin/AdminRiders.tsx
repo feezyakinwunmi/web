@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Bike, Download, FileText, MapPin, Phone, Mail, Search, Star } from 'lucide-react';
 import { useFeedback } from '../../components/Toast';
-import { Badge, Button, Card, Drawer, EmptyState, Input, LoadMore, PageHeader, Spinner, Table, Tabs, Td, Th } from '../../components/ui';
+import { Badge, Button, Card, Drawer, EmptyState, Input, LoadMore, Modal, PageHeader, Spinner, Table, Tabs, Td, Textarea, Th } from '../../components/ui';
 import { supabase } from '../../lib/supabase';
 import { dateOnly, dateTime, naira, timeAgo, titleCase } from '../../lib/format';
 import { downloadCsv } from '../../lib/csv';
@@ -51,7 +51,43 @@ interface Application {
   account_name: string | null;
   status: string;
   created_at: string;
+  // Added by 20261101000000_rider_applications.sql
+  date_of_birth: string | null;
+  city: string | null;
+  selfie_url: string | null;
+  vehicle_make: string | null;
+  vehicle_model: string | null;
+  vehicle_year: number | null;
+  vehicle_color: string | null;
+  vehicle_owner_name: string | null;
+  vehicle_owner_phone: string | null;
+  vehicle_photo_url: string | null;
+  vehicle_papers_url: string | null;
+  license_expiry: string | null;
+  id_type: string | null;
+  id_number: string | null;
+  guarantor_name: string | null;
+  guarantor_phone: string | null;
+  guarantor_relationship: string | null;
+  guarantor_address: string | null;
+  rejection_reason: string | null;
+  reviewed_at: string | null;
 }
+
+const ID_TYPE_LABEL: Record<string, string> = {
+  nin: 'NIN',
+  voters_card: "Voter's card",
+  passport: 'Passport',
+  drivers_license: "Driver's licence",
+};
+
+const QUICK_REASONS = [
+  'Photos are unclear',
+  'ID does not match your details',
+  'Licence is expired or invalid',
+  'Vehicle papers missing or invalid',
+  'Guarantor could not be reached',
+];
 
 interface Stats {
   rider_id: string;
@@ -85,6 +121,30 @@ const riderStatus = (u: RiderUser | null, a: Application | null): Rider['status'
 
 const STATUS_TONE = { active: 'ok', pending: 'warn', suspended: 'bad', rejected: 'neutral' } as const;
 
+// Application photos are stored as "public" storage links, which don't open when
+// the rider-documents bucket is private. Swap them for 1-hour signed links.
+const DOC_FIELDS = ['selfie_url', 'vehicle_photo_url', 'vehicle_papers_url', 'license_photo_url', 'id_card_url'] as const;
+const DOC_PATH = /\/storage\/v1\/object\/(?:public|sign|authenticated)\/rider-documents\/([^?]+)/;
+const docPath = (url: string | null) => {
+  const m = url?.match(DOC_PATH);
+  return m ? decodeURIComponent(m[1]) : null;
+};
+
+async function withSignedDocuments(apps: Application[]): Promise<Application[]> {
+  const paths = [...new Set(apps.flatMap(a => DOC_FIELDS.map(f => docPath(a[f]))).filter((p): p is string => !!p))];
+  if (!paths.length) return apps;
+  const { data } = await supabase.storage.from('rider-documents').createSignedUrls(paths, 60 * 60);
+  const signed = new Map((data || []).filter(d => d.signedUrl).map(d => [d.path, d.signedUrl]));
+  return apps.map(a => {
+    const copy = { ...a };
+    DOC_FIELDS.forEach(f => {
+      const p = docPath(a[f]);
+      if (p && signed.get(p)) copy[f] = signed.get(p)!;
+    });
+    return copy;
+  });
+}
+
 export function AdminRiders() {
   const { toast } = useFeedback();
   const [riders, setRiders] = useState<Rider[]>([]);
@@ -100,7 +160,7 @@ export function AdminRiders() {
     ]);
     if (appsError) toast(appsError.message, 'error');
     if (statsRes.error) toast(statsRes.error.message, 'error');
-    const applications = (apps as Application[]) || [];
+    const applications = await withSignedDocuments((apps as Application[]) || []);
     const ids = new Set<string>(applications.map(a => a.user_id));
     const { data: riderRows } = await supabase.from('users').select('*').eq('role', 'rider');
     (riderRows || []).forEach(r => ids.add(r.id));
@@ -226,7 +286,7 @@ export function AdminRiders() {
                 <tr key={r.id} className="cursor-pointer hover:bg-surface-2" onClick={() => setSelectedId(r.id)}>
                   <Td>
                     <div className="flex items-center gap-3">
-                      {u?.avatar_url ? <img src={u.avatar_url} alt="" className="size-9 rounded-full object-cover" /> : <div className="flex size-9 items-center justify-center rounded-full bg-surface-3"><Bike className="size-4 text-ink-3" /></div>}
+                      {u?.avatar_url || a?.selfie_url ? <img src={(u?.avatar_url || a?.selfie_url)!} alt="" className="size-9 rounded-full object-cover" /> : <div className="flex size-9 items-center justify-center rounded-full bg-surface-3"><Bike className="size-4 text-ink-3" /></div>}
                       <div>
                         <div className="font-medium">{r.name}</div>
                         <div className="text-xs text-ink-3">{u?.phone || a?.phone}</div>
@@ -326,21 +386,32 @@ function RiderDrawer({ rider, onClose, onChanged }: { rider: Rider; onClose: () 
     setLoadingMore(false);
   };
 
-  const review = async (approve: boolean) => {
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const [preview, setPreview] = useState<string | null>(null);
+
+  const submitReview = async (approve: boolean) => {
     if (!a) return;
-    const ok = await confirm({
-      title: approve ? `Approve ${rider.name}?` : `Reject ${rider.name}'s application?`,
-      message: approve ? 'They will be able to go online and accept deliveries.' : 'They will be told the application was not approved.',
-      confirmLabel: approve ? 'Approve rider' : 'Reject',
-      danger: !approve,
-    });
-    if (!ok) return;
     setBusy(true);
-    const { error } = await supabase.rpc('admin_review_rider_application', { p_application_id: a.id, p_approve: approve });
+    const { error } = await supabase.rpc('admin_review_rider_application', {
+      p_application_id: a.id,
+      p_approve: approve,
+      p_reason: approve ? null : reason.trim(),
+    });
     setBusy(false);
     if (error) return toast(error.message, 'error');
     toast(approve ? 'Rider approved' : 'Application rejected');
+    setRejectOpen(false);
     onChanged();
+  };
+
+  const approve = async () => {
+    const ok = await confirm({
+      title: `Approve ${rider.name}?`,
+      message: 'They will be able to go online and accept deliveries.',
+      confirmLabel: 'Approve rider',
+    });
+    if (ok) submitReview(true);
   };
 
   const setSuspended = async (suspended: boolean) => {
@@ -369,8 +440,8 @@ function RiderDrawer({ rider, onClose, onChanged }: { rider: Rider; onClose: () 
         <>
           {a?.status === 'pending' && (
             <>
-              <Button variant="danger" disabled={busy} onClick={() => review(false)}>Reject</Button>
-              <Button disabled={busy} onClick={() => review(true)}>Approve rider</Button>
+              <Button variant="danger" disabled={busy} onClick={() => setRejectOpen(true)}>Reject</Button>
+              <Button disabled={busy} onClick={approve}>Approve rider</Button>
             </>
           )}
           {u && rider.status === 'active' && <Button variant="danger" disabled={busy} onClick={() => setSuspended(true)}>Suspend</Button>}
@@ -386,6 +457,12 @@ function RiderDrawer({ rider, onClose, onChanged }: { rider: Rider; onClose: () 
           <Mini label="Owed" value={naira(Math.max(0, earned - Number(s?.paid_out || 0)))} hint={Number(s?.pending_withdrawals) ? `${naira(s?.pending_withdrawals)} requested` : undefined} />
         </div>
 
+        {a?.status === 'rejected' && a.rejection_reason && (
+          <div className="rounded-lg border border-bad/30 bg-bad/10 p-3 text-bad">
+            Rejected{a.reviewed_at ? ` ${dateOnly(a.reviewed_at)}` : ''}: {a.rejection_reason}
+          </div>
+        )}
+
         <section className="space-y-2 rounded-lg border border-line p-4">
           <div className="flex flex-wrap gap-2">
             <Badge tone={STATUS_TONE[rider.status]}>{rider.status}</Badge>
@@ -395,7 +472,8 @@ function RiderDrawer({ rider, onClose, onChanged }: { rider: Rider; onClose: () 
           </div>
           {(u?.phone || a?.phone) && <div className="flex items-center gap-2"><Phone className="size-4 text-ink-3" />{u?.phone || a?.phone}</div>}
           {(u?.email || a?.email) && <div className="flex items-center gap-2"><Mail className="size-4 text-ink-3" />{u?.email || a?.email}</div>}
-          {a?.address && <div className="flex items-start gap-2"><MapPin className="mt-0.5 size-4 text-ink-3" />{a.address}</div>}
+          {a?.address && <div className="flex items-start gap-2"><MapPin className="mt-0.5 size-4 text-ink-3" />{[a.address, a.city].filter(Boolean).join(', ')}</div>}
+          {a?.date_of_birth && <div className="text-xs text-ink-3">Born {dateOnly(a.date_of_birth)}</div>}
           {u?.last_location_update && (
             <div className="text-xs text-ink-3">
               Last location {timeAgo(u.last_location_update)}
@@ -415,17 +493,38 @@ function RiderDrawer({ rider, onClose, onChanged }: { rider: Rider; onClose: () 
           <h3 className="mb-2 font-semibold">Vehicle & documents</h3>
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border border-line p-4">
             <Info label="Vehicle" value={titleCase(u?.vehicle_type || a?.vehicle_type)} />
+            <Info label="Make / model" value={[a?.vehicle_make, a?.vehicle_model].filter(Boolean).join(' ') || null} />
+            <Info label="Year" value={a?.vehicle_year ? String(a.vehicle_year) : null} />
+            <Info label="Colour" value={a?.vehicle_color} />
             <Info label="Plate number" value={u?.vehicle_number || a?.vehicle_number} />
             <Info label="Ownership" value={titleCase(u?.vehicle_ownership || a?.vehicle_ownership)} />
+            {a?.vehicle_owner_name && <Info label="Vehicle owner" value={`${a.vehicle_owner_name}${a.vehicle_owner_phone ? ` · ${a.vehicle_owner_phone}` : ''}`} />}
             <Info label="License number" value={u?.license_number || a?.license_number} />
+            <Info label="License expiry" value={a?.license_expiry ? dateOnly(a.license_expiry) : null} />
+            <Info label="ID" value={a?.id_type ? `${ID_TYPE_LABEL[a.id_type] || a.id_type} · ${a.id_number || ''}` : null} />
           </dl>
-          {(a?.license_photo_url || a?.id_card_url) && (
-            <div className="mt-3 flex flex-wrap gap-3">
-              {a.license_photo_url && <DocLink href={a.license_photo_url} label="Driver's license" />}
-              {a.id_card_url && <DocLink href={a.id_card_url} label="ID card" />}
+          {a && (
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
+              <DocThumb url={a.selfie_url} label="Selfie" onOpen={setPreview} />
+              <DocThumb url={a.vehicle_photo_url} label="Vehicle" onOpen={setPreview} />
+              <DocThumb url={a.vehicle_papers_url} label="Papers" onOpen={setPreview} />
+              <DocThumb url={a.license_photo_url} label="Licence" onOpen={setPreview} />
+              <DocThumb url={a.id_card_url} label="ID card" onOpen={setPreview} />
             </div>
           )}
         </section>
+
+        {a?.guarantor_name && (
+          <section>
+            <h3 className="mb-2 font-semibold">Guarantor</h3>
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border border-line p-4">
+              <Info label="Name" value={a.guarantor_name} />
+              <Info label="Relationship" value={a.guarantor_relationship} />
+              <Info label="Phone" value={a.guarantor_phone} />
+              <Info label="Address" value={a.guarantor_address} />
+            </dl>
+          </section>
+        )}
 
         <section>
           <h3 className="mb-2 font-semibold">Bank account</h3>
@@ -479,6 +578,39 @@ function RiderDrawer({ rider, onClose, onChanged }: { rider: Rider; onClose: () 
           )}
         </section>
       </div>
+
+      <Modal
+        open={rejectOpen}
+        onClose={() => setRejectOpen(false)}
+        title={`Reject ${rider.name}'s application`}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setRejectOpen(false)}>Cancel</Button>
+            <Button variant="danger" disabled={busy || !reason.trim()} onClick={() => submitReview(false)}>Reject application</Button>
+          </>
+        }
+      >
+        <p className="mb-3">The applicant sees this reason and can fix it and apply again.</p>
+        <div className="mb-3 flex flex-wrap gap-2">
+          {QUICK_REASONS.map(r => (
+            <button
+              key={r}
+              type="button"
+              onClick={() => setReason(r)}
+              className={`rounded-full border px-3 py-1 text-xs ${reason === r ? 'border-bad bg-bad text-white' : 'border-line hover:bg-surface-2'}`}
+            >
+              {r}
+            </button>
+          ))}
+        </div>
+        <Textarea rows={3} value={reason} onChange={e => setReason(e.target.value)} placeholder="Reason for rejecting" />
+      </Modal>
+
+      {preview && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 p-6" onClick={() => setPreview(null)}>
+          <img src={preview} alt="" className="max-h-full max-w-full rounded-lg object-contain" />
+        </div>
+      )}
     </Drawer>
   );
 }
@@ -502,12 +634,17 @@ function Info({ label, value }: { label: string; value: string | null | undefine
   );
 }
 
-function DocLink({ href, label }: { href: string; label: string }) {
-  const safe = /^https:\/\//.test(href) ? href : undefined;
-  if (!safe) return null;
+function DocThumb({ url, label, onOpen }: { url: string | null; label: string; onOpen: (url: string) => void }) {
+  const safe = url && /^https:\/\//.test(url) ? url : null;
   return (
-    <a href={safe} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-sm hover:bg-surface-2">
-      <FileText className="size-4 text-ink-3" />{label}
-    </a>
+    <button
+      type="button"
+      disabled={!safe}
+      onClick={() => safe && onOpen(safe)}
+      className="group relative flex aspect-square items-center justify-center overflow-hidden rounded-lg border border-line bg-surface-2 disabled:cursor-default"
+    >
+      {safe ? <img src={safe} alt={label} className="size-full object-cover transition group-hover:scale-105" /> : <FileText className="size-5 text-ink-3" />}
+      <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white">{label}</span>
+    </button>
   );
 }

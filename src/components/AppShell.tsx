@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import {
   LayoutDashboard, ShoppingBag, UtensilsCrossed, Wallet, Settings, Store, ClipboardCheck,
-  Users, Banknote, Megaphone, Menu as MenuIcon, LogOut, X, Bike, Crown, LineChart, MessageSquareWarning, Bell, LifeBuoy,
+  Users, Banknote, Megaphone, Send, Menu as MenuIcon, LogOut, X, Bike, Crown, LineChart, MessageSquareWarning, Bell, LifeBuoy,
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthProvider';
 import { NotificationsProvider } from '../lib/notifications';
@@ -20,6 +20,7 @@ const VENDOR_NAV: NavItem[] = [
   { to: '/vendor/orders', label: 'Orders', icon: <ShoppingBag className="size-4" /> },
   { to: '/vendor/menu', label: 'Menu', icon: <UtensilsCrossed className="size-4" /> },
   { to: '/vendor/earnings', label: 'Earnings', icon: <Wallet className="size-4" /> },
+  { to: '/vendor/promote', label: 'Promote', icon: <Megaphone className="size-4" /> },
   { to: '/vendor/support', label: 'Support', icon: <LifeBuoy className="size-4" /> },
   { to: '/vendor/notifications', label: 'Notifications', icon: <Bell className="size-4" /> },
   { to: '/vendor/settings', label: 'Settings', icon: <Settings className="size-4" /> },
@@ -37,6 +38,7 @@ const ADMIN_NAV: NavItem[] = [
   { to: '/admin/subscriptions', label: 'Pro subscriptions', icon: <Crown className="size-4" /> },
   { to: '/admin/complaints', label: 'Complaints', icon: <MessageSquareWarning className="size-4" /> },
   { to: '/admin/withdrawals', label: 'Withdrawals', icon: <Banknote className="size-4" /> },
+  { to: '/admin/cash-payouts', label: 'Cash payouts', icon: <Send className="size-4" /> },
   { to: '/admin/notifications', label: 'Notifications', icon: <Bell className="size-4" /> },
   { to: '/admin/settings', label: 'Settings', icon: <Settings className="size-4" /> },
 ];

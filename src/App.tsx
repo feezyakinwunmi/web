@@ -21,7 +21,9 @@ const AdminSettings = lazy(() => import('./pages/admin/AdminSettings').then(m =>
 const AdminReports = lazy(() => import('./pages/admin/AdminReports').then(m => ({ default: m.AdminReports })));
 const AdminRiders = lazy(() => import('./pages/admin/AdminRiders').then(m => ({ default: m.AdminRiders })));
 const AdminSubscriptions = lazy(() => import('./pages/admin/AdminSubscriptions').then(m => ({ default: m.AdminSubscriptions })));
+const AdminCashPayouts = lazy(() => import('./pages/admin/AdminCashPayouts').then(m => ({ default: m.AdminCashPayouts })));
 const AdminComplaints = lazy(() => import('./pages/admin/AdminComplaints').then(m => ({ default: m.AdminComplaints })));
+const VendorPromote = lazy(() => import('./pages/vendor/VendorPromote').then(m => ({ default: m.VendorPromote })));
 const VendorSupport = lazy(() => import('./pages/vendor/VendorSupport').then(m => ({ default: m.VendorSupport })));
 const NotificationsPage = lazy(() => import('./pages/Notifications').then(m => ({ default: m.NotificationsPage })));
 
@@ -66,6 +68,7 @@ export default function App() {
               <Route path="/vendor/menu" element={<VendorMenu />} />
               <Route path="/vendor/earnings" element={<VendorEarnings />} />
               <Route path="/vendor/settings" element={<VendorSettings />} />
+              <Route path="/vendor/promote" element={<VendorPromote />} />
               <Route path="/vendor/support" element={<VendorSupport />} />
               <Route path="/vendor/notifications" element={<NotificationsPage />} />
             </Route>
@@ -78,6 +81,7 @@ export default function App() {
               <Route path="/admin/promotions" element={<AdminPromotions />} />
               <Route path="/admin/users" element={<AdminUsers />} />
               <Route path="/admin/withdrawals" element={<AdminWithdrawals />} />
+              <Route path="/admin/cash-payouts" element={<AdminCashPayouts />} />
               <Route path="/admin/settings" element={<AdminSettings />} />
               <Route path="/admin/reports" element={<AdminReports />} />
               <Route path="/admin/riders" element={<AdminRiders />} />

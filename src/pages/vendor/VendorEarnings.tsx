@@ -6,6 +6,7 @@ import { Badge, Card, EmptyState, PageHeader, Spinner, StatCard, Table, Tabs, Td
 import { daysAgo, dateTime, naira } from '../../lib/format';
 import { orderLabel } from '../../lib/orders';
 import { useVendorOrders } from './VendorOrders';
+import { VendorCashPayouts } from './VendorCashPayouts';
 
 type Range = '7' | '30' | 'all';
 
@@ -58,7 +59,7 @@ export function VendorEarnings() {
         <StatCard label="Total earned" value={naira(totals.total)} tone="brand" icon={<Wallet className="size-4" />} hint={`${earning.length} orders`} />
         <StatCard label="Sent to your bank" value={naira(totals.card)} tone="ok" hint="Card payments" />
         <StatCard label="Arriving soon" value={naira(totals.settling)} tone="warn" hint="Card payments from the last 24h" />
-        <StatCard label="Cash orders" value={naira(totals.cash)} hint="Paid to you on delivery" />
+        <StatCard label="Cash orders" value={naira(totals.cash)} hint="Sent by Vesphe after delivery" />
       </div>
 
       <Card className="flex flex-wrap items-center gap-3 p-4 text-sm">
@@ -75,6 +76,8 @@ export function VendorEarnings() {
           </span>
         )}
       </Card>
+
+      <VendorCashPayouts vendorId={vendor.id} />
 
       <Card>
         <div className="border-b border-line px-5 py-4 font-semibold">Earning orders</div>
