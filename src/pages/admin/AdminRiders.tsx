@@ -121,6 +121,13 @@ const riderStatus = (u: RiderUser | null, a: Application | null): Rider['status'
 
 const STATUS_TONE = { active: 'ok', pending: 'warn', suspended: 'bad', rejected: 'neutral' } as const;
 
+// Same rule as the app (app/utils/riderPresence.ts): online = switch on AND the
+// rider app checked in within 5 minutes (it sends a heartbeat every minute).
+const PRESENCE_TIMEOUT_MS = 5 * 60 * 1000;
+const isOnline = (u: RiderUser | null) =>
+  !!u && !u.is_suspended && !!u.is_available && !!u.last_location_update &&
+  Date.now() - new Date(u.last_location_update).getTime() < PRESENCE_TIMEOUT_MS;
+
 // Application photos are stored as "public" storage links, which don't open when
 // the rider-documents bucket is private. Swap them for 1-hour signed links.
 const DOC_FIELDS = ['selfie_url', 'vehicle_photo_url', 'vehicle_papers_url', 'license_photo_url', 'id_card_url'] as const;
@@ -193,12 +200,12 @@ export function AdminRiders() {
   }, [load]);
 
   const count = (f: Filter) =>
-    f === 'all' ? riders.length : f === 'online' ? riders.filter(r => r.user?.is_online).length : riders.filter(r => r.status === f).length;
+    f === 'all' ? riders.length : f === 'online' ? riders.filter(r => isOnline(r.user)).length : riders.filter(r => r.status === f).length;
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     return riders
-      .filter(r => filter === 'all' || (filter === 'online' ? r.user?.is_online : r.status === filter))
+      .filter(r => filter === 'all' || (filter === 'online' ? isOnline(r.user) : r.status === filter))
       .filter(r =>
         !q ||
         r.name.toLowerCase().includes(q) ||
@@ -304,7 +311,7 @@ export function AdminRiders() {
                   <Td>
                     <div className="flex flex-wrap gap-1">
                       <Badge tone={STATUS_TONE[r.status]}>{r.status === 'pending' ? 'application' : r.status}</Badge>
-                      {u?.is_online && <Badge tone="ok">online</Badge>}
+                      {isOnline(u) && <Badge tone="ok">online</Badge>}
                     </div>
                   </Td>
                 </tr>
@@ -466,8 +473,8 @@ function RiderDrawer({ rider, onClose, onChanged }: { rider: Rider; onClose: () 
         <section className="space-y-2 rounded-lg border border-line p-4">
           <div className="flex flex-wrap gap-2">
             <Badge tone={STATUS_TONE[rider.status]}>{rider.status}</Badge>
-            {u?.is_online ? <Badge tone="ok">online</Badge> : <Badge>offline</Badge>}
-            {u?.is_available && <Badge tone="info">available for orders</Badge>}
+            {isOnline(u) ? <Badge tone="ok">online</Badge> : <Badge>offline</Badge>}
+            {isOnline(u) && !s?.active_orders && <Badge tone="info">available for orders</Badge>}
             {!!s?.active_orders && <Badge tone="brand">{s.active_orders} active order(s)</Badge>}
           </div>
           {(u?.phone || a?.phone) && <div className="flex items-center gap-2"><Phone className="size-4 text-ink-3" />{u?.phone || a?.phone}</div>}
