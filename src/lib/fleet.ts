@@ -141,3 +141,133 @@ export async function fetchRidersWithoutBike(): Promise<{ id: string; name: stri
   const busy = new Set((current || []).map((a: any) => a.rider_id));
   return (riders || []).filter(r => !busy.has(r.id));
 }
+
+// ---------------------------------------------------------------------------
+// Bike expenses (fuel, repairs, servicing, parts) — admin only
+// ---------------------------------------------------------------------------
+
+export type ExpenseKind = 'fuel' | 'repair' | 'service' | 'parts' | 'other';
+
+export const EXPENSE_KINDS: { value: ExpenseKind; label: string }[] = [
+  { value: 'fuel', label: 'Fuel' },
+  { value: 'repair', label: 'Repair' },
+  { value: 'service', label: 'Servicing' },
+  { value: 'parts', label: 'Parts' },
+  { value: 'other', label: 'Other' },
+];
+
+export interface BikeExpense {
+  id: string;
+  bike_id: string;
+  kind: ExpenseKind;
+  amount: number;
+  litres: number | null;
+  odometer_km: number | null;
+  note: string | null;
+  spent_at: string;
+  created_at: string;
+  bike?: { plate_number: string } | null;
+  recorder?: { name: string | null } | null;
+}
+
+export async function fetchExpenses(opts: { bikeId?: string; from?: string } = {}): Promise<BikeExpense[]> {
+  let query = supabase
+    .from('bike_expenses')
+    .select('*, bike:bike_id (plate_number), recorder:recorded_by (name)')
+    .order('spent_at', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(500);
+  if (opts.bikeId) query = query.eq('bike_id', opts.bikeId);
+  if (opts.from) query = query.gte('spent_at', opts.from);
+  const { data, error } = await query;
+  if (error) throw error;
+  return ((data as BikeExpense[]) || []).map(e => ({ ...e, amount: Number(e.amount) || 0 }));
+}
+
+export type ExpenseInput = Pick<BikeExpense, 'bike_id' | 'kind' | 'amount' | 'litres' | 'odometer_km' | 'note' | 'spent_at'>;
+
+export async function addExpense(input: ExpenseInput) {
+  const { error } = await supabase.from('bike_expenses').insert(input);
+  if (error) throw error;
+}
+
+export async function deleteExpense(id: string) {
+  const { error } = await supabase.from('bike_expenses').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Delivery bags
+// ---------------------------------------------------------------------------
+
+export type BagStatus = 'available' | 'assigned' | 'damaged' | 'lost' | 'retired';
+
+export interface Bag {
+  id: string;
+  bag_code: string;
+  size: string | null;
+  color: string | null;
+  status: BagStatus;
+  notes: string | null;
+  created_at: string;
+  rider?: { id: string; name: string | null; phone: string | null } | null;
+  assigned_at?: string | null;
+}
+
+export async function fetchBags(): Promise<Bag[]> {
+  const [{ data: bags, error }, { data: current }] = await Promise.all([
+    supabase.from('delivery_bags').select('*').order('bag_code'),
+    supabase.from('bag_assignments').select('bag_id, assigned_at, rider:rider_id (id, name, phone)').is('returned_at', null),
+  ]);
+  if (error) throw error;
+  const byBag = new Map((current || []).map((a: any) => [a.bag_id, a]));
+  return ((bags as Bag[]) || []).map(b => ({
+    ...b,
+    rider: (byBag.get(b.id) as any)?.rider || null,
+    assigned_at: (byBag.get(b.id) as any)?.assigned_at || null,
+  }));
+}
+
+export async function saveBag(input: Pick<Bag, 'bag_code' | 'size' | 'color' | 'notes'>, id?: string) {
+  const row = { ...input, bag_code: input.bag_code.trim().toUpperCase(), updated_at: new Date().toISOString() };
+  const { error } = id
+    ? await supabase.from('delivery_bags').update(row).eq('id', id)
+    : await supabase.from('delivery_bags').insert(row);
+  if (error) throw error.code === '23505' ? new Error('A bag with this code already exists.') : error;
+}
+
+export async function setBagStatus(id: string, status: 'available' | 'damaged' | 'lost' | 'retired') {
+  const { error } = await supabase.from('delivery_bags').update({ status, updated_at: new Date().toISOString() }).eq('id', id);
+  if (error) throw error;
+}
+
+export async function assignBag(bagId: string, riderId: string) {
+  const { error } = await supabase.rpc('admin_assign_bag', { p_bag_id: bagId, p_rider_id: riderId });
+  if (error) throw error;
+}
+
+export async function returnBag(bagId: string, newStatus: 'available' | 'damaged' | 'lost' | 'retired' = 'available') {
+  const { error } = await supabase.rpc('admin_return_bag', { p_bag_id: bagId, p_new_status: newStatus });
+  if (error) throw error;
+}
+
+export async function fetchRiderBag(riderId: string): Promise<(Bag & { assigned_at: string }) | null> {
+  const { data } = await supabase
+    .from('bag_assignments')
+    .select('assigned_at, bag:bag_id (*)')
+    .eq('rider_id', riderId)
+    .is('returned_at', null)
+    .maybeSingle();
+  const bag = (data as any)?.bag as Bag | undefined;
+  return bag ? { ...bag, assigned_at: (data as any).assigned_at } : null;
+}
+
+// Approved riders who don't have a bag right now.
+export async function fetchRidersWithoutBag(): Promise<{ id: string; name: string | null; phone: string | null }[]> {
+  const [{ data: riders }, { data: current }] = await Promise.all([
+    supabase.from('users').select('id, name, phone').eq('role', 'rider').eq('is_suspended', false).order('name'),
+    supabase.from('bag_assignments').select('rider_id').is('returned_at', null),
+  ]);
+  const busy = new Set((current || []).map((a: any) => a.rider_id));
+  return (riders || []).filter(r => !busy.has(r.id));
+}

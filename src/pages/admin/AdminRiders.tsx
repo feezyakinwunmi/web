@@ -5,7 +5,7 @@ import { Badge, Button, Card, Drawer, EmptyState, Input, LoadMore, Modal, PageHe
 import { supabase } from '../../lib/supabase';
 import { dateOnly, dateTime, naira, timeAgo, titleCase } from '../../lib/format';
 import { downloadCsv } from '../../lib/csv';
-import { type Bike as FleetBike, assignBike, bikeLabel, fetchBikes, fetchRiderBike, returnBike } from '../../lib/fleet';
+import { type Bag, type Bike as FleetBike, assignBag, assignBike, bikeLabel, fetchBags, fetchBikes, fetchRiderBag, fetchRiderBike, returnBag, returnBike } from '../../lib/fleet';
 
 interface RiderUser {
   id: string;
@@ -453,6 +453,34 @@ function RiderDrawer({ rider, onClose, onChanged }: { rider: Rider; onClose: () 
     loadBike();
   }, [loadBike]);
 
+  // Delivery bag
+  const [bag, setBag] = useState<(Bag & { assigned_at: string }) | null | undefined>(undefined);
+  const [freeBags, setFreeBags] = useState<Bag[]>([]);
+  const [bagId, setBagId] = useState('');
+  const loadBag = useCallback(async () => {
+    if (!isRider) return;
+    const [current, all] = await Promise.all([fetchRiderBag(rider.id), fetchBags().catch(() => [] as Bag[])]);
+    setBag(current);
+    setFreeBags(all.filter(b => b.status === 'available'));
+  }, [isRider, rider.id]);
+  useEffect(() => {
+    loadBag();
+  }, [loadBag]);
+
+  const bagAction = async (fn: () => Promise<void>, done: string) => {
+    setBusy(true);
+    try {
+      await fn();
+      toast(done);
+      setBagId('');
+      await loadBag();
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const giveBike = async () => {
     setBusy(true);
     try {
@@ -559,7 +587,7 @@ function RiderDrawer({ rider, onClose, onChanged }: { rider: Rider; onClose: () 
                   <Button variant="secondary" size="sm" disabled={busy} onClick={takeBikeBack}>Take bike back</Button>
                 </div>
               ) : freeBikes.length === 0 ? (
-                <span className="text-warn">No bike assigned, and no free bikes. Add one on the Fleet page.</span>
+                <span className="text-warn">No bike assigned, and no free bikes. Add one on the Fleet page. This rider can't go online until they have a bike and a bag.</span>
               ) : (
                 <div className="flex flex-wrap items-end gap-2">
                   <select
@@ -567,10 +595,43 @@ function RiderDrawer({ rider, onClose, onChanged }: { rider: Rider; onClose: () 
                     onChange={e => setBikeId(e.target.value)}
                     className="h-9 min-w-56 flex-1 rounded-lg border border-line bg-surface-2 px-3 text-sm"
                   >
-                    <option value="">No bike yet. Choose one to assign…</option>
+                    <option value="">No bike yet (can't go online). Choose one…</option>
                     {freeBikes.map(b => <option key={b.id} value={b.id}>{b.plate_number} · {bikeLabel(b)}</option>)}
                   </select>
                   <Button size="sm" disabled={!bikeId || busy} onClick={giveBike}>Assign bike</Button>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
+        {isRider && (
+          <section>
+            <h3 className="mb-2 font-semibold">Delivery bag</h3>
+            <div className="rounded-lg border border-line p-4">
+              {bag === undefined ? (
+                <Spinner />
+              ) : bag ? (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="font-semibold tracking-wide">{bag.bag_code}</div>
+                    <div className="text-ink-3">{[bag.color, bag.size].filter(Boolean).join(' · ') || 'Delivery bag'} · since {dateOnly(bag.assigned_at)}</div>
+                  </div>
+                  <Button variant="secondary" size="sm" disabled={busy} onClick={() => bagAction(() => returnBag(bag.id), 'Bag returned')}>Bag returned</Button>
+                </div>
+              ) : freeBags.length === 0 ? (
+                <span className="text-warn">No bag assigned, and no free bags. Add one on Fleet → Delivery bags. This rider can't go online until they have a bag.</span>
+              ) : (
+                <div className="flex flex-wrap items-end gap-2">
+                  <select
+                    value={bagId}
+                    onChange={e => setBagId(e.target.value)}
+                    className="h-9 min-w-56 flex-1 rounded-lg border border-line bg-surface-2 px-3 text-sm"
+                  >
+                    <option value="">No bag yet (can't go online). Choose one…</option>
+                    {freeBags.map(b => <option key={b.id} value={b.id}>{b.bag_code}{b.color ? ` · ${b.color}` : ''}</option>)}
+                  </select>
+                  <Button size="sm" disabled={!bagId || busy} onClick={() => bagAction(() => assignBag(bagId, rider.id), 'Bag assigned. The rider has been notified.')}>Assign bag</Button>
                 </div>
               )}
             </div>

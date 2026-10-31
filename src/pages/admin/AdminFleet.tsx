@@ -2,16 +2,20 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Bike as BikeIcon, FileText, Plus, Search } from 'lucide-react';
 import { useFeedback } from '../../components/Toast';
 import { Badge, Button, Card, Drawer, EmptyState, Field, Input, PageHeader, Select, Spinner, StatCard, Table, Tabs, Td, Textarea, Th } from '../../components/ui';
-import { dateOnly, dateTime, timeAgo } from '../../lib/format';
+import { FleetBags } from './FleetBags';
+import { ExpenseForm, ExpenseTable, FleetExpenses } from './FleetExpenses';
+import { dateOnly, dateTime, naira, timeAgo } from '../../lib/format';
 import {
   type Assignment,
   type Bike,
   type BikeInput,
+  type BikeExpense,
   type BikeStatus,
   assignBike,
   bikeLabel,
   fetchBikeHistory,
   fetchBikes,
+  fetchExpenses,
   fetchRidersWithoutBike,
   returnBike,
   saveBike,
@@ -27,7 +31,28 @@ export const BIKE_STATUS: Record<BikeStatus, { label: string; tone: 'ok' | 'info
   retired: { label: 'Retired', tone: 'neutral' },
 };
 
+type Section = 'bikes' | 'bags' | 'expenses';
+
 export function AdminFleet() {
+  const [section, setSection] = useState<Section>('bikes');
+  return (
+    <div className="space-y-6">
+      <PageHeader title="Fleet" subtitle="Vesphe's motorcycles, delivery bags and running costs." />
+      <Tabs<Section>
+        value={section}
+        onChange={setSection}
+        options={[
+          { value: 'bikes', label: 'Bikes' },
+          { value: 'bags', label: 'Delivery bags' },
+          { value: 'expenses', label: 'Fuel & maintenance' },
+        ]}
+      />
+      {section === 'bikes' ? <BikesView /> : section === 'bags' ? <FleetBags /> : <FleetExpenses />}
+    </div>
+  );
+}
+
+function BikesView() {
   const { toast } = useFeedback();
   const [bikes, setBikes] = useState<Bike[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,11 +87,6 @@ export function AdminFleet() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Fleet"
-        subtitle="Vesphe's motorcycles. Register each bike once, then assign it to a rider."
-        actions={<Button icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>Add bike</Button>}
-      />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Bikes" value={bikes.length.toString()} tone="brand" icon={<BikeIcon className="size-4" />} />
@@ -87,9 +107,12 @@ export function AdminFleet() {
             { value: 'retired', label: 'Retired', count: count('retired') },
           ]}
         />
-        <div className="relative w-full sm:w-72">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-3" />
-          <Input placeholder="Plate, model or rider" value={query} onChange={e => setQuery(e.target.value)} className="pl-9" />
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative w-full sm:w-64">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-3" />
+            <Input placeholder="Plate, model or rider" value={query} onChange={e => setQuery(e.target.value)} className="pl-9" />
+          </div>
+          <Button icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>Add bike</Button>
         </div>
       </div>
 
@@ -232,6 +255,14 @@ function BikeDrawer({ bike, onClose, onEdit, onChanged }: { bike: Bike; onClose:
   const [riders, setRiders] = useState<{ id: string; name: string | null; phone: string | null }[]>([]);
   const [riderId, setRiderId] = useState('');
   const [busy, setBusy] = useState(false);
+  const [expenses, setExpenses] = useState<BikeExpense[] | null>(null);
+  const [addingExpense, setAddingExpense] = useState(false);
+  const loadExpenses = useCallback(() => {
+    fetchExpenses({ bikeId: bike.id }).then(setExpenses).catch(() => setExpenses([]));
+  }, [bike.id]);
+  useEffect(() => {
+    loadExpenses();
+  }, [loadExpenses]);
 
   useEffect(() => {
     fetchBikeHistory(bike.id).then(setHistory).catch(() => setHistory([]));
@@ -339,6 +370,32 @@ function BikeDrawer({ bike, onClose, onEdit, onChanged }: { bike: Bike; onClose:
                 <Button size="sm" variant="secondary" disabled={busy} onClick={() => run(() => setBikeStatus(bike.id, 'retired'), 'Bike retired')}>Retire bike</Button>
               )}
             </div>
+          )}
+        </section>
+
+        <section>
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="font-semibold">
+              Fuel & maintenance
+              {expenses && expenses.length > 0 && (
+                <span className="ml-2 font-normal text-ink-3">{naira(expenses.reduce((s, e) => s + e.amount, 0))} total</span>
+              )}
+            </h3>
+            <Button size="sm" variant="secondary" icon={<Plus className="size-3.5" />} onClick={() => setAddingExpense(true)}>Add</Button>
+          </div>
+          <div className="overflow-hidden rounded-lg border border-line">
+            <ExpenseTable rows={expenses} onDeleted={loadExpenses} />
+          </div>
+          {addingExpense && (
+            <ExpenseForm
+              bikes={[{ id: bike.id, plate_number: bike.plate_number }]}
+              defaultBikeId={bike.id}
+              onClose={() => setAddingExpense(false)}
+              onSaved={() => {
+                setAddingExpense(false);
+                loadExpenses();
+              }}
+            />
           )}
         </section>
 
