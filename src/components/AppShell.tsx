@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import {
   LayoutDashboard, ShoppingBag, UtensilsCrossed, Wallet, Settings, Store, ClipboardCheck,
-  Users, Banknote, Megaphone, Send, Menu as MenuIcon, LogOut, X, Bike, Crown, LineChart, MessageSquareWarning, Bell, LifeBuoy,
+  Users, Banknote, Megaphone, Send, Wrench, Menu as MenuIcon, LogOut, X, Bike, Crown, LineChart, MessageSquareWarning, Bell, LifeBuoy,
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthProvider';
 import { NotificationsProvider } from '../lib/notifications';
@@ -32,6 +32,7 @@ const ADMIN_NAV: NavItem[] = [
   { to: '/admin/orders', label: 'Orders', icon: <ShoppingBag className="size-4" /> },
   { to: '/admin/vendors', label: 'Vendors', icon: <Store className="size-4" /> },
   { to: '/admin/riders', label: 'Riders', icon: <Bike className="size-4" /> },
+  { to: '/admin/fleet', label: 'Fleet', icon: <Wrench className="size-4" /> },
   { to: '/admin/menu', label: 'Menu approvals', icon: <ClipboardCheck className="size-4" /> },
   { to: '/admin/promotions', label: 'Promotions', icon: <Megaphone className="size-4" /> },
   { to: '/admin/users', label: 'Users', icon: <Users className="size-4" /> },

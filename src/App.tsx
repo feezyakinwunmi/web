@@ -21,6 +21,7 @@ const AdminSettings = lazy(() => import('./pages/admin/AdminSettings').then(m =>
 const AdminReports = lazy(() => import('./pages/admin/AdminReports').then(m => ({ default: m.AdminReports })));
 const AdminRiders = lazy(() => import('./pages/admin/AdminRiders').then(m => ({ default: m.AdminRiders })));
 const AdminSubscriptions = lazy(() => import('./pages/admin/AdminSubscriptions').then(m => ({ default: m.AdminSubscriptions })));
+const AdminFleet = lazy(() => import('./pages/admin/AdminFleet').then(m => ({ default: m.AdminFleet })));
 const AdminCashPayouts = lazy(() => import('./pages/admin/AdminCashPayouts').then(m => ({ default: m.AdminCashPayouts })));
 const AdminComplaints = lazy(() => import('./pages/admin/AdminComplaints').then(m => ({ default: m.AdminComplaints })));
 const VendorPromote = lazy(() => import('./pages/vendor/VendorPromote').then(m => ({ default: m.VendorPromote })));
@@ -85,6 +86,7 @@ export default function App() {
               <Route path="/admin/settings" element={<AdminSettings />} />
               <Route path="/admin/reports" element={<AdminReports />} />
               <Route path="/admin/riders" element={<AdminRiders />} />
+              <Route path="/admin/fleet" element={<AdminFleet />} />
               <Route path="/admin/subscriptions" element={<AdminSubscriptions />} />
               <Route path="/admin/complaints" element={<AdminComplaints />} />
               <Route path="/admin/notifications" element={<NotificationsPage />} />

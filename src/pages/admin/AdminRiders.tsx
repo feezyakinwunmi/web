@@ -5,6 +5,7 @@ import { Badge, Button, Card, Drawer, EmptyState, Input, LoadMore, Modal, PageHe
 import { supabase } from '../../lib/supabase';
 import { dateOnly, dateTime, naira, timeAgo, titleCase } from '../../lib/format';
 import { downloadCsv } from '../../lib/csv';
+import { type Bike as FleetBike, assignBike, bikeLabel, fetchBikes, fetchRiderBike, returnBike } from '../../lib/fleet';
 
 interface RiderUser {
   id: string;
@@ -437,6 +438,53 @@ function RiderDrawer({ rider, onClose, onChanged }: { rider: Rider; onClose: () 
 
   const earned = Number(s?.order_earnings || 0) + Number(s?.logistics_earnings || 0);
 
+  // Company bike: what this rider has now, and free bikes to choose from.
+  const isRider = u?.role === 'rider';
+  const [bike, setBike] = useState<(FleetBike & { assigned_at: string }) | null | undefined>(undefined);
+  const [freeBikes, setFreeBikes] = useState<FleetBike[]>([]);
+  const [bikeId, setBikeId] = useState('');
+  const loadBike = useCallback(async () => {
+    if (!isRider) return;
+    const [current, all] = await Promise.all([fetchRiderBike(rider.id), fetchBikes().catch(() => [] as FleetBike[])]);
+    setBike(current);
+    setFreeBikes(all.filter(b => b.status === 'available'));
+  }, [isRider, rider.id]);
+  useEffect(() => {
+    loadBike();
+  }, [loadBike]);
+
+  const giveBike = async () => {
+    setBusy(true);
+    try {
+      await assignBike(bikeId, rider.id);
+      toast('Bike assigned. The rider has been notified.');
+      setBikeId('');
+      await loadBike();
+      onChanged();
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const takeBikeBack = async () => {
+    if (!bike) return;
+    const ok = await confirm({ title: `Take ${bike.plate_number} back from ${rider.name}?`, message: 'The bike becomes available to assign again.', confirmLabel: 'Take back' });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await returnBike(bike.id);
+      toast('Bike returned');
+      await loadBike();
+      onChanged();
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <Drawer
       open
@@ -495,6 +543,39 @@ function RiderDrawer({ rider, onClose, onChanged }: { rider: Rider; onClose: () 
             {u?.rider_rating ? ` · ${Number(u.rider_rating).toFixed(1)}★ from ${u.rider_review_count || 0} reviews` : ''}
           </div>
         </section>
+
+        {isRider && (
+          <section>
+            <h3 className="mb-2 font-semibold">Company bike</h3>
+            <div className="rounded-lg border border-line p-4">
+              {bike === undefined ? (
+                <Spinner />
+              ) : bike ? (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="font-semibold tracking-wide">{bike.plate_number}</div>
+                    <div className="text-ink-3">{bikeLabel(bike)} · since {dateOnly(bike.assigned_at)}</div>
+                  </div>
+                  <Button variant="secondary" size="sm" disabled={busy} onClick={takeBikeBack}>Take bike back</Button>
+                </div>
+              ) : freeBikes.length === 0 ? (
+                <span className="text-warn">No bike assigned, and no free bikes. Add one on the Fleet page.</span>
+              ) : (
+                <div className="flex flex-wrap items-end gap-2">
+                  <select
+                    value={bikeId}
+                    onChange={e => setBikeId(e.target.value)}
+                    className="h-9 min-w-56 flex-1 rounded-lg border border-line bg-surface-2 px-3 text-sm"
+                  >
+                    <option value="">No bike yet. Choose one to assign…</option>
+                    {freeBikes.map(b => <option key={b.id} value={b.id}>{b.plate_number} · {bikeLabel(b)}</option>)}
+                  </select>
+                  <Button size="sm" disabled={!bikeId || busy} onClick={giveBike}>Assign bike</Button>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
 
         <section>
           <h3 className="mb-2 font-semibold">Vehicle & documents</h3>
